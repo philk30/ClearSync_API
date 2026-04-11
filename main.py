@@ -70,3 +70,32 @@ async def predict(x_api_key: str = Header(None)):
     supabase.table("predictions").upsert(records).execute()
 
     return {"status": "ok", "count": len(records)}
+
+
+@app.post("/predict-single/{patient_id}")
+async def predict_single(patient_id: str, x_api_key: str = Header(None)):
+    if x_api_key != API_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # 1. Fetch just this patient
+    row = supabase.table("patients").select("*").eq("id", patient_id).execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    df = pd.DataFrame(row.data)
+
+    # 2. Encode, slice, predict
+    df[CAT_COLS] = enc.transform(df[CAT_COLS].astype(str))
+    X = df[MODEL_FEATURES].astype(float)
+    log_preds = model.predict(X.to_numpy())
+    preds_days = np.exp(log_preds).clip(min=1)
+
+    # 3. Upsert single prediction
+    record = {
+        "patient_id":    row.data[0]["id"],
+        "prediction":    round(float(preds_days[0]), 2),
+        "model_version": "v1.0",
+    }
+    supabase.table("predictions").upsert(record).execute()
+
+    return {"status": "ok", "patient_id": patient_id, "prediction": record["prediction"]}
