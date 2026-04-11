@@ -48,6 +48,7 @@ async def predict(x_api_key: str = Header(None)):
 
     # 2. Encode categoricals using the same encoder fitted at training time
     df[CAT_COLS] = enc.transform(df[CAT_COLS].astype(str))
+    X = X.astype(float)
 
     # 3. Slice exactly the features the model needs, in the right order
     X = df[MODEL_FEATURES]
