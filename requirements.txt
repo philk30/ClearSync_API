@@ -2,5 +2,8 @@ fastapi
 uvicorn
 lightgbm
 pandas
+numpy
+scikit-learn
 supabase
+joblib
 python-dotenv
