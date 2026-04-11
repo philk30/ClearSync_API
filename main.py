@@ -67,7 +67,8 @@ async def predict(x_api_key: str = Header(None)):
         }
         for row, pred in zip(rows.data, preds_days)
     ]
-    supabase.table("predictions").upsert(records).execute()
+    supabase.table("predictions").upsert(
+        records, on_conflict="patient_id").execute()
 
     return {"status": "ok", "count": len(records)}
 
@@ -96,6 +97,7 @@ async def predict_single(patient_id: str, x_api_key: str = Header(None)):
         "prediction":    round(float(preds_days[0]), 2),
         "model_version": "v1.0",
     }
-    supabase.table("predictions").upsert(record).execute()
+    supabase.table("predictions").upsert(
+        record, on_conflict="patient_id").execute()
 
     return {"status": "ok", "patient_id": patient_id, "prediction": record["prediction"]}
