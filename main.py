@@ -46,23 +46,23 @@ async def predict(x_api_key: str = Header(None)):
 
     df = pd.DataFrame(rows.data)
 
-    # 2. Encode categoricals using the same encoder fitted at training time
+    # 2. Encode categoricals
     df[CAT_COLS] = enc.transform(df[CAT_COLS].astype(str))
-    X = X.astype(float)
 
     # 3. Slice exactly the features the model needs, in the right order
-    X = df[MODEL_FEATURES]
+    X = df[MODEL_FEATURES].astype(float)
 
-    # 4. Predict — model outputs log(LOS), so back-transform with exp()
-    log_preds = model.predict(X)
-    # floor at 1 day, matches training
+    # 4. Convert to numpy — bypasses LightGBM pandas dtype inspection
+    log_preds = model.predict(X.to_numpy())
+
+    # 5. Back-transform from log scale
     preds_days = np.exp(log_preds).clip(min=1)
 
-    # 5. Write predictions back to Supabase
+    # 6. Write predictions back to Supabase
     records = [
         {
-            "patient_id":   row["id"],
-            "prediction":   round(float(pred), 2),   # predicted LOS in days
+            "patient_id":    row["id"],
+            "prediction":    round(float(pred), 2),
             "model_version": "v1.0",
         }
         for row, pred in zip(rows.data, preds_days)
