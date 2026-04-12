@@ -5,6 +5,8 @@ from supabase import create_client
 import joblib
 import numpy as np
 import os
+from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
@@ -101,3 +103,65 @@ async def predict_single(patient_id: str, x_api_key: str = Header(None)):
         record, on_conflict="patient_id").execute()
 
     return {"status": "ok", "patient_id": patient_id, "prediction": record["prediction"]}
+
+# From Kudzani's Claude Code
+
+
+class PredictPreviewRequest(BaseModel):
+    # Accept all 13 columns; only the 7 in MODEL_FEATURES are used.
+    # Extra keys are ignored. Missing keys for non-model features are fine.
+    age_group: Optional[str] = None
+    gender: Optional[str] = None
+    race: Optional[str] = None
+    ethnicity: Optional[str] = None
+    admission_type: Optional[str] = None
+    med_surg: Optional[str] = None
+    health_service_area: Optional[str] = None
+    zip3: Optional[str] = None
+    ccs_dx: Optional[str] = None
+    ccs_proc: Optional[str] = None
+    apr_drg: Optional[str] = None
+    apr_severity: Optional[float] = None
+    apr_rom: Optional[float] = None
+
+
+@app.post("/predict-preview")
+async def predict_preview(
+    payload: PredictPreviewRequest,
+    x_api_key: str = Header(None),
+):
+    """
+    Stateless prediction. Accepts a feature dict, runs inference,
+    returns LOS in days. Does NOT read from or write to Supabase.
+    Used by the frontend Digital Twin for instant what-if previews.
+    """
+    if x_api_key != API_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # 1. Build a single-row DataFrame from the payload
+    df = pd.DataFrame([payload.dict()])
+
+    # 2. Validate that all required model features are present
+    missing = [
+        f for f in MODEL_FEATURES if f not in df.columns or df[f].isna().all()]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required features: {missing}",
+        )
+
+    # 3. Encode categoricals (same path as /predict)
+    df[CAT_COLS] = enc.transform(df[CAT_COLS].astype(str))
+
+    # 4. Slice to model features in the exact order
+    X = df[MODEL_FEATURES].astype(float)
+
+    # 5. Predict, back-transform from log scale, floor at 1 day
+    log_pred = model.predict(X.to_numpy())
+    pred_days = float(np.exp(log_pred[0]).clip(min=1))
+
+    return {
+        "status": "ok",
+        "prediction": round(pred_days, 2),
+        "model_version": "v1.0",
+    }
